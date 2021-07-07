@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "springboot-app.fullname" . }}
+  labels:
+    {{- include "springboot-app.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "springboot-app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "springboot-app.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "springboot-app.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: splunk-uf
+          image: splunk/universalforwarder:latest
+          env:
+          - name: SPLUNK_START_ARGS
+            value: --accept-license
+          - name: SPLUNK_USER
+            valueFrom:
+              secretKeyRef:
+                name: splunk-auth
+                key: username
+            #value: {{ .Values.splunk.username }}
+          - name: SPLUNK_GROUP
+            valueFrom:
+              secretKeyRef:
+                name: splunk-auth
+                key: group
+          - name: SPLUNK_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: splunk-auth
+                key: password
+          - name: SPLUNK_CMD
+            value: add monitor /var/log/
+          - name: SPLUNK_STANDALONE_URL
+            value: splunk-splunk-helm-chart.splunk.svc.cluster.local:9997
+          volumeMounts:
+          - name: shared-data
+            mountPath: /var/log
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: LOGGING_FILE
+            value: /var/app/logs/app.log
+          volumeMounts:
+          - name: shared-data
+            mountPath: /var/app/logs
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: shared-data
+        emptyDir: {}
